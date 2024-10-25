@@ -1,0 +1,134 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: cgroups-exporter
+    app.kubernetes.io/component: monitoring
+  name: cgroups-exporter-metrics
+  namespace: openshift-cnv
+spec:
+  endpoints:
+    - honorLabels: true
+      port: http-metrics
+      scheme: http
+  namespaceSelector:
+    matchNames:
+      - openshift-cnv
+  selector:
+    matchLabels:
+      prometheus.cgroups-exporter.io: "true"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    openshift.io/description: Expose the `/metrics` endpoint on port 8080. This port
+      is for internal use, and no other usage is guaranteed.
+  labels:
+    cgroups-exporter.io: cgroups-exporter
+    app: cgroups-exporter
+    app.kubernetes.io/component: monitoring
+    prometheus.cgroups-exporter.io: "true"
+  name: cgroups-exporter
+  namespace: openshift-cnv
+spec:
+  clusterIP: None
+  clusterIPs:
+    - None
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: http-metrics
+      port: 8080
+      protocol: TCP
+      targetPort: http-metrics
+  selector:
+    cgroups-exporter.io: cgroups-exporter
+    app: cgroups-exporter
+    app.kubernetes.io/component: monitoring
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cgroups-exporter
+  namespace: openshift-cnv
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      cgroups-exporter.io: cgroups-exporter
+  template:
+    metadata:
+      labels:
+        cgroups-exporter.io: cgroups-exporter
+        app: cgroups-exporter
+        app.kubernetes.io/component: monitoring
+      annotations:
+        prometheus.cgroups-exporter.io: "true"
+      name: cgroups-exporter
+    spec:
+      containers:
+      - args:
+        - --metrics-port
+        - "8080"
+        - --cgroups-path
+        - "/host_sys/sys/fs/cgroup/kubepods.slice/kubepods-*.slice/kubepods-*-pod*.slice"
+        - --log-level
+        - "debug"
+        command:
+        - cgroups-exporter
+        env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+        image: quay.io/tiraboschi/cgroups-exporter:kubepods
+        imagePullPolicy: Always
+        name: cgroups-exporter
+        ports:
+        - containerPort: 8080
+          name: http-metrics
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 10m
+            memory: 357Mi
+        securityContext:
+          privileged: true
+          seLinuxOptions:
+            level: s0
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+          - mountPath: /host_sys/sys/fs/cgroup
+            mountPropagation: HostToContainer
+            name: sys-fs-cgroups
+            readOnly: true
+      dnsPolicy: ClusterFirst
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccountName: kubevirt-handler
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      volumes:
+        - hostPath:
+            path: /sys/fs/cgroup
+            type: ""
+          name: sys-fs-cgroups
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate

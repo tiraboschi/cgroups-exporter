@@ -1,271 +1,117 @@
-CGroups exporter
-================
+# CGroups exporter
 
-Exporter for CGroups metrics, for LXD/Docker/systemd. 
+Exporter for CGroupsv2 (PSI and stats) metrics for k8s pods (`/sys/fs/cgroup/kubepods.slice/`).
+This is a simple POC derived from: https://github.com/mosquito/cgroups-exporter
 
-Collects metrics for all cgroups based containers or SystemD services 
-on the host machine, without the need to install separate exporters 
+Collects metrics (PSI and stats) for all cgroupsv2 based pods, without the need to install separate exporters 
 inside each container.
 
-Installation
-------------
+## Installation
 
-```bash
-pip install cgroups-exporter
-```
+It can be deployed on OCP with the manifests under `deploy_ocp`.
+`cgroup_exporter_ds.yaml` will create a `DaemonSet` executing a  `cgroup-exporter` pod on each node.
+It will also create a `Service` and a `ServiceMonitor` object to let `Prometheus` scrape it.
+`Prometheus node exporter` is already collecting PSI metrics at node level. 
 
-Example
--------
+PSI is not enabled by default on RHCOS nodes but it can be easily enabled with a `MachineConfig` setting a `KernelParameter`. 
 
-A simple example collects all available metrics for LXD containers.
+## Metrics
 
-```bash
-cgroups-exporter --cgroups-path "/sys/fs/cgroup/*/lxc.payload.*"
-```
+### PSI metrics
 
-You can pass several path templates, then metrics will be collected from everyone.
+> [!IMPORTANT]
+> PSI is not enabled by default on RHCOS nodes but it can be easily enabled with a `MachineConfig` setting a `KernelParameter`.
 
-In the example below, metrics will be collected for:
-* All LXD containers
-* All SystemD services running inside the LXD containers
-* All Docker containers inside the LXD containers.
-* All user slices (when used entering through the ssh the 
-  SystemD creates the slice named by template `user-$UID`)
+| Name                                        | Type    | Description                    |
+|---------------------------------------------|---------|--------------------------------|
+| `cgroupsv2kubepods_cpu_pressure_some_seconds`    | Counter | CPU resource pressure total    |
+| `cgroupsv2kubepods_cpu_pressure_full_seconds`    | Counter | CPU resource pressure total    |
+| `cgroupsv2kubepods_io_pressure_full_seconds`     | Counter | IO resource pressure total     |
+| `cgroupsv2kubepods_io_pressure_full_seconds`     | Counter | IO resource pressure total     |
+| `cgroupsv2kubepods_memory_pressure_full_seconds` | Counter | Memory resource pressure total |
+| `cgroupsv2kubepods_memory_pressure_full_seconds` | Counter | Memory resource pressure total |
 
-```bash
-cgroups-exporter \
-  --cgroups-path \
-      "/sys/fs/cgroup/*/lxc.payload.*/" \
-      "/sys/fs/cgroup/unified/lxc.payload.*/**/*.service" \
-      "/sys/fs/cgroup/unified/lxc.payload.*/**/user-*" \
-      "/sys/fs/cgroup/cpu/lxc.payload.*/**/*.service" \
-      "/sys/fs/cgroup/unified/**/user.slice/user-*" \
-      "/sys/fs/cgroup/*/lxc.payload.*/docker/*"
-```
+[Prometheus Node exporter](https://github.com/prometheus/node_exporter?tab=readme-ov-file#enabled-by-default) is already collecting by default (if enabled at Kernel level) PSI metrics at node level.
+No need to replicate it here.
 
-Usage
------
-
-Args that start with `--` (eg. -s) can also be set in a config file 
-(`~/.cgroups-exporter.conf` or `/etc/cgroups-exporter.conf`). 
-
-Config file syntax allows: `key=value`, `flag=true`, `stuff=[a,b,c]` 
-(for details, see syntax [here](https://goo.gl/R74nmi)). 
-
-If an arg is specified in more than one place, then commandline values 
-override environment variables which override config file values 
-which override defaults.
-
-Environment variable `CGROUPS_EXPORTER_CONFIG` overwrites config file location.
-
-```
-usage: cgroups-exporter [-h] [-s POOL_SIZE] [-u USER] [--log-level {critical,error,warning,info,debug,notset}] [--log-format {stream,color,json,syslog,plain,journald,rich,rich_tb}] [--metrics-address METRICS_ADDRESS]
-                        [--metrics-port METRICS_PORT] [--metrics-disable-compression] --cgroups-path CGROUPS_PATH [CGROUPS_PATH ...] [--cgroups-root CGROUPS_ROOT] [--collector-interval COLLECTOR_INTERVAL]
-                        [--collector-delay COLLECTOR_DELAY] [--collector-workers COLLECTOR_WORKERS] [--profiler-enable] [--profiler-top-results PROFILER_TOP_RESULTS] [--profiler-interval PROFILER_INTERVAL] [--memory-tracer-enable]
-                        [--memory-tracer-top-results MEMORY_TRACER_TOP_RESULTS] [--memory-tracer-interval MEMORY_TRACER_INTERVAL]
-
-croups exporter
-
-options:
-  -h, --help            show this help message and exit
-  -s POOL_SIZE          Thread pool size (default: 4) [ENV: CGROUPS_EXPORTER_POOL_SIZE]
-  -u USER               Change process UID [ENV: CGROUPS_EXPORTER_USER]
-
-  --log-level {critical,error,warning,info,debug,notset}
-                        (default: info) [ENV: CGROUPS_EXPORTER_LOG_LEVEL]
-  --log-format {stream,color,json,syslog,plain,journald,rich,rich_tb}
-                        (default: color) [ENV: CGROUPS_EXPORTER_LOG_FORMAT]
-
-Metrics options:
-  --metrics-address METRICS_ADDRESS
-                        (default: ::) [ENV: CGROUPS_EXPORTER_METRICS_ADDRESS]
-  --metrics-port METRICS_PORT
-                        (default: 9753) [ENV: CGROUPS_EXPORTER_METRICS_PORT]
-  --metrics-disable-compression
-                        [ENV: CGROUPS_EXPORTER_METRICS_DISABLE_COMPRESSION]
-
-CGroups options:
-  --cgroups-path CGROUPS_PATH [CGROUPS_PATH ...]
-                        [ENV: CGROUPS_EXPORTER_CGROUPS_PATH]
-  --cgroups-root CGROUPS_ROOT
-                        (default: /sys/fs/cgroup) [ENV: CGROUPS_EXPORTER_CGROUPS_ROOT]
-
-Collector options:
-  --collector-interval COLLECTOR_INTERVAL
-                        (default: 15) [ENV: CGROUPS_EXPORTER_COLLECTOR_INTERVAL]
-  --collector-delay COLLECTOR_DELAY
-                        (default: 4) [ENV: CGROUPS_EXPORTER_COLLECTOR_DELAY]
-  --collector-workers COLLECTOR_WORKERS
-                        (default: 4) [ENV: CGROUPS_EXPORTER_COLLECTOR_WORKERS]
-
-Profiler options:
-  --profiler-enable     [ENV: CGROUPS_EXPORTER_PROFILER_ENABLE]
-  --profiler-top-results PROFILER_TOP_RESULTS
-                        (default: 20) [ENV: CGROUPS_EXPORTER_PROFILER_TOP_RESULTS]
-  --profiler-interval PROFILER_INTERVAL
-                        (default: 5) [ENV: CGROUPS_EXPORTER_PROFILER_INTERVAL]
-
-Memory Tracer options:
-  --memory-tracer-enable
-                        [ENV: CGROUPS_EXPORTER_MEMORY_TRACER_ENABLE]
-  --memory-tracer-top-results MEMORY_TRACER_TOP_RESULTS
-                        (default: 20) [ENV: CGROUPS_EXPORTER_MEMORY_TRACER_TOP_RESULTS]
-  --memory-tracer-interval MEMORY_TRACER_INTERVAL
-                        (default: 5) [ENV: CGROUPS_EXPORTER_MEMORY_TRACER_INTERVAL]
-
-Default values will based on following configuration files ['cgroups-exporter.conf', '~/.cgroups-exporter.conf', '/etc/cgroups-exporter.conf']. The configuration files is INI-formatted files where configuration groups is INI
-sections.See more https://pypi.org/project/argclass/#configs
-```
-
-Container Usage
----------------
-
-`cgroups-exporter` is also available as a container image to be used in Docker, Kubernetes or other runtimes. It expects the host `/sys` directory to be mounted in the container (read only).
-
-Docker usage example:
-
-```shell
-docker run -p 9753:9753 -v /sys/:/host_sys/ ghcr.io/mosquito/cgroups-exporter:latest cgroups-exporter --cgroups-path "/host_sys/fs/cgroup/*/docker/*"
-```
+| Name                                         | Type    | Description                                                                    |
+|----------------------------------------------|---------|--------------------------------------------------------------------------------|
+| `node_pressure_cpu_waiting_seconds_total`    | Counter | Total time in seconds that processes have waited for CPU time                  |
+| `node_pressure_memory_stalled_seconds_total` | Counter | Total time in seconds no process could make progress due to memory congestion  |
+| `node_pressure_memory_waiting_seconds_total` | Counter | Total time in seconds that processes have waited for memory                    |
+| `node_pressure_io_stalled_seconds_total`     | Counter | Total time in seconds no process could make progress due to IO congestion      |
+| `node_pressure_io_waiting_seconds_total`     | Counter | Total time in seconds that processes have waited due to IO congestion          |
 
 
-Metrics
--------
+### CPU stat metrics
 
-| Name | Description |
-| ------------ | ------------ |
-| `cgroups_blkio_bfq_service_bytes_async` | BlockIO service bytes ('async' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_service_bytes_discard` | BlockIO service bytes ('discard' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_service_bytes_read` | BlockIO service bytes ('read' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_async` | BlockIO service bytes recursive ('async' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_discard` | BlockIO service bytes recursive ('discard' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_read` | BlockIO service bytes recursive ('read' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_sync` | BlockIO service bytes recursive ('sync' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_total` | BlockIO service bytes recursive ('total' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_recursive_write` | BlockIO service bytes recursive ('write' field from 'blkio.bfq.io_service_bytes_recursive' file) |
-| `cgroups_blkio_bfq_service_bytes_sync` | BlockIO service bytes ('sync' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_service_bytes_total` | BlockIO service bytes ('total' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_service_bytes_write` | BlockIO service bytes ('write' field from 'blkio.bfq.io_service_bytes' file) |
-| `cgroups_blkio_bfq_serviced_async` | BlockIO serviced bytes ('async' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_bfq_serviced_discard` | BlockIO serviced bytes ('discard' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_bfq_serviced_read` | BlockIO serviced bytes ('read' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_bfq_serviced_recursive_async` | BlockIO serviced bytes recursive ('async' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_recursive_discard` | BlockIO serviced bytes recursive ('discard' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_recursive_read` | BlockIO serviced bytes recursive ('read' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_recursive_sync` | BlockIO serviced bytes recursive ('sync' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_recursive_total` | BlockIO serviced bytes recursive ('total' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_recursive_write` | BlockIO serviced bytes recursive ('write' field from 'blkio.bfq.io_serviced_recursive' file) |
-| `cgroups_blkio_bfq_serviced_sync` | BlockIO serviced bytes ('sync' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_bfq_serviced_total` | BlockIO serviced bytes ('total' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_bfq_serviced_write` | BlockIO serviced bytes ('write' field from 'blkio.bfq.io_serviced' file) |
-| `cgroups_blkio_throttle_service_bytes_async` | BlockIO service bytes ('async' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_service_bytes_discard` | BlockIO service bytes ('discard' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_service_bytes_read` | BlockIO service bytes ('read' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_async` | BlockIO throttle serviced bytes ('async' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_discard` | BlockIO throttle serviced bytes ('discard' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_read` | BlockIO throttle serviced bytes ('read' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_sync` | BlockIO throttle serviced bytes ('sync' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_total` | BlockIO throttle serviced bytes ('total' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_recursive_write` | BlockIO throttle serviced bytes ('write' field from 'blkio.throttle.io_service_bytes_recursive' file) |
-| `cgroups_blkio_throttle_service_bytes_sync` | BlockIO service bytes ('sync' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_service_bytes_total` | BlockIO service bytes ('total' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_service_bytes_write` | BlockIO service bytes ('write' field from 'blkio.throttle.io_service_bytes' file) |
-| `cgroups_blkio_throttle_serviced_async` | BlockIO serviced bytes ('async' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_blkio_throttle_serviced_discard` | BlockIO serviced bytes ('discard' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_blkio_throttle_serviced_read` | BlockIO serviced bytes ('read' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_blkio_throttle_serviced_recursive_async` | BlockIO serviced bytes recursive ('async' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_recursive_discard` | BlockIO serviced bytes recursive ('discard' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_recursive_read` | BlockIO serviced bytes recursive ('read' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_recursive_sync` | BlockIO serviced bytes recursive ('sync' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_recursive_total` | BlockIO serviced bytes recursive ('total' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_recursive_write` | BlockIO serviced bytes recursive ('write' field from 'blkio.throttle.io_serviced_recursive' file) |
-| `cgroups_blkio_throttle_serviced_sync` | BlockIO serviced bytes ('sync' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_blkio_throttle_serviced_total` | BlockIO serviced bytes ('total' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_blkio_throttle_serviced_write` | BlockIO serviced bytes ('write' field from 'blkio.throttle.io_serviced' file) |
-| `cgroups_cpu_cpuacct_cfs_period_us` | Allowed CPU periods in microseconds |
-| `cgroups_cpu_cpuacct_cfs_quota_us` | Allowed CPU quota in microseconds |
-| `cgroups_cpu_cpuacct_shares` | Allowed CPU shares |
-| `cgroups_cpu_cpuacct_stat_nr_periods` | CPU statistic ('nr_periods' field from 'cpu.stat' file) |
-| `cgroups_cpu_cpuacct_stat_nr_throttled` | CPU statistic ('nr_throttled' field from 'cpu.stat' file) |
-| `cgroups_cpu_cpuacct_stat_system` | CPU accounting statistic ('system' field from 'cpuacct.stat' file) |
-| `cgroups_cpu_cpuacct_stat_throttled_time` | CPU statistic ('throttled_time' field from 'cpu.stat' file) |
-| `cgroups_cpu_cpuacct_stat_user` | CPU accounting statistic ('user' field from 'cpuacct.stat' file) |
-| `cgroups_cpu_pressure_some_avg10` | CPU resource pressure. Average by 10 seconds |
-| `cgroups_cpu_pressure_some_avg300` | CPU resource pressure. Average by 300 seconds |
-| `cgroups_cpu_pressure_some_avg60` | CPU resource pressure. Average by 60 seconds |
-| `cgroups_cpu_pressure_some_total` | CPU resource pressure total |
-| `cgroups_cpuset_count_cpu` | CPU set for the cgroup |
-| `cgroups_exporter_calls_collector_created` | Exporter collector run counter |
-| `cgroups_exporter_calls_collector_total` | Exporter collector run counter |
-| `cgroups_exporter_collect_time_collector_created` | Exporter collector execution time |
-| `cgroups_exporter_collect_time_collector` | Exporter collector execution time |
-| `cgroups_io_pressure_full_avg10` | IO resource pressure. Average by 10 seconds |
-| `cgroups_io_pressure_full_avg300` | IO resource pressure. Average by 300 seconds |
-| `cgroups_io_pressure_full_avg60` | IO resource pressure. Average by 60 seconds |
-| `cgroups_io_pressure_full_total` | IO resource pressure total |
-| `cgroups_io_pressure_some_avg10` | IO resource pressure. Average by 10 seconds |
-| `cgroups_io_pressure_some_avg300` | IO resource pressure. Average by 300 seconds |
-| `cgroups_io_pressure_some_avg60` | IO resource pressure. Average by 60 seconds |
-| `cgroups_io_pressure_some_total` | IO resource pressure total |
-| `cgroups_memory_limit_kmem_tcp` | Kernel TCP memory limit |
-| `cgroups_memory_limit_kmem` | Memory kernel limit |
-| `cgroups_memory_limit_soft` | Soft limit |
-| `cgroups_memory_limit_swap` | Swap limit |
-| `cgroups_memory_limit` | Memory limit |
-| `cgroups_memory_pressure_full_avg10` | Memory resource pressure. Average by 10 seconds |
-| `cgroups_memory_pressure_full_avg300` | Memory resource pressure. Average by 300 seconds |
-| `cgroups_memory_pressure_full_avg60` | Memory resource pressure. Average by 60 seconds |
-| `cgroups_memory_pressure_full_total` | Memory resource pressure total |
-| `cgroups_memory_pressure_some_avg10` | Memory resource pressure. Average by 10 seconds |
-| `cgroups_memory_pressure_some_avg300` | Memory resource pressure. Average by 300 seconds |
-| `cgroups_memory_pressure_some_avg60` | Memory resource pressure. Average by 60 seconds |
-| `cgroups_memory_pressure_some_total` | Memory resource pressure total |
-| `cgroups_memory_stat_active_anon` | memory statistic ('active_anon' field from 'memory.stat' file) |
-| `cgroups_memory_stat_active_file` | memory statistic ('active_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_cache` | memory statistic ('cache' field from 'memory.stat' file) |
-| `cgroups_memory_stat_dirty` | memory statistic ('dirty' field from 'memory.stat' file) |
-| `cgroups_memory_stat_hierarchical_memory_limit` | memory statistic ('hierarchical_memory_limit' field from 'memory.stat' file) |
-| `cgroups_memory_stat_hierarchical_memsw_limit` | memory statistic ('hierarchical_memsw_limit' field from 'memory.stat' file) |
-| `cgroups_memory_stat_inactive_anon` | memory statistic ('inactive_anon' field from 'memory.stat' file) |
-| `cgroups_memory_stat_inactive_file` | memory statistic ('inactive_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_mapped_file` | memory statistic ('mapped_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_pgfault` | memory statistic ('pgfault' field from 'memory.stat' file) |
-| `cgroups_memory_stat_pgmajfault` | memory statistic ('pgmajfault' field from 'memory.stat' file) |
-| `cgroups_memory_stat_pgpgin` | memory statistic ('pgpgin' field from 'memory.stat' file) |
-| `cgroups_memory_stat_pgpgout` | memory statistic ('pgpgout' field from 'memory.stat' file) |
-| `cgroups_memory_stat_rss_huge` | memory statistic ('rss_huge' field from 'memory.stat' file) |
-| `cgroups_memory_stat_rss` | memory statistic ('rss' field from 'memory.stat' file) |
-| `cgroups_memory_stat_shmem` | memory statistic ('shmem' field from 'memory.stat' file) |
-| `cgroups_memory_stat_swap` | memory statistic ('swap' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_active_anon` | memory statistic ('total_active_anon' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_active_file` | memory statistic ('total_active_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_cache` | memory statistic ('total_cache' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_dirty` | memory statistic ('total_dirty' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_inactive_anon` | memory statistic ('total_inactive_anon' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_inactive_file` | memory statistic ('total_inactive_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_mapped_file` | memory statistic ('total_mapped_file' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_pgfault` | memory statistic ('total_pgfault' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_pgmajfault` | memory statistic ('total_pgmajfault' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_pgpgin` | memory statistic ('total_pgpgin' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_pgpgout` | memory statistic ('total_pgpgout' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_rss_huge` | memory statistic ('total_rss_huge' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_rss` | memory statistic ('total_rss' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_shmem` | memory statistic ('total_shmem' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_swap` | memory statistic ('total_swap' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_unevictable` | memory statistic ('total_unevictable' field from 'memory.stat' file) |
-| `cgroups_memory_stat_total_writeback` | memory statistic ('total_writeback' field from 'memory.stat' file) |
-| `cgroups_memory_stat_unevictable` | memory statistic ('unevictable' field from 'memory.stat' file) |
-| `cgroups_memory_stat_writeback` | memory statistic ('writeback' field from 'memory.stat' file) |
-| `cgroups_memory_usage_kmem_max` | Maximum kernel memory usage |
-| `cgroups_memory_usage_kmem_tcp` | Kernel TCP memory usage |
-| `cgroups_memory_usage_kmem` | Maximum kernel TCP maximum memory usage |
-| `cgroups_memory_usage_max` | Maximum memory usage |
-| `cgroups_memory_usage_swap_max` | Maximum swap usage |
-| `cgroups_memory_usage_swap` | Swap usage |
-| `cgroups_memory_usage` | Memory usage |
-| `cgroups_pids_count` | Process IDs count for this namespace |
-| `cgroups_pids_max` | Maximum Process IDs allowed for this namespace |
-| `cgroups_unified_stat_system_usec` | CPU statistic ('system_usec' field from 'cpu.stat' file) |
-| `cgroups_unified_stat_usage_usec` | CPU statistic ('usage_usec' field from 'cpu.stat' file) |
-| `cgroups_unified_stat_user_usec` | CPU statistic ('user_usec' field from 'cpu.stat' file) |
-| `cgroups_unified_uptime` | init.scope uptime |
+| Name                                                    | Type  | Description                                             |
+|---------------------------------------------------------|-------|---------------------------------------------------------|
+| `cgroupsv2kubepods_cpu_stat_usage_usec`                 | Gauge | `usage_usec` field from `cpu.stat` file                 |
+| `cgroupsv2kubepods_cpu_stat_user_usec`                  | Gauge | `user_usec` field from `cpu.stat` file                  |
+| `cgroupsv2kubepods_cpu_stat_system_usec`                | Gauge | `system_usec` field from `cpu.stat` file                |
+| `cgroupsv2kubepods_cpu_stat_core_sched_force_idle_usec` | Gauge | `core_sched.force_idle_usec` field from `cpu.stat` file |
+| `cgroupsv2kubepods_cpu_stat_nr_periods`                 | Gauge | `nr_periods` field from `cpu.stat` file                 |
+| `cgroupsv2kubepods_cpu_stat_nr_throttled`               | Gauge | `nr_throttled` field from `cpu.stat` file               |
+| `cgroupsv2kubepods_cpu_stat_throttled_usec`             | Gauge | `throttled_usec` field from `cpu.stat` file             |
+| `cgroupsv2kubepods_cpu_stat_nr_bursts`                  | Gauge | `nr_bursts` field from `cpu.stat` file                  |
+| `cgroupsv2kubepods_cpu_stat_burst_usec`                 | Gauge | `burst_usec` field from `cpu.stat` file                 |
+
+
+### Memory stat metrics
+
+| Name                                                     | Type  | Description                                              |
+|----------------------------------------------------------|-------|----------------------------------------------------------|
+| `cgroupsv2kubepods_memory_stat_anon`                     | Gauge | `anon` field from `memory.stat` file                     |
+| `cgroupsv2kubepods_memory_stat_file`                     | Gauge | `file` field from `memory.stat` file                     |
+| `cgroupsv2kubepods_memory_stat_kernel`                   | Gauge | `kernel` field from `memory.stat` file                   |
+| `cgroupsv2kubepods_memory_stat_kernel_stack`             | Gauge | `kernel_stack` field from `memory.stat` file             |
+| `cgroupsv2kubepods_memory_stat_pagetables`               | Gauge | `pagetables` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_sec_pagetables`           | Gauge | `sec_pagetables` field from `memory.stat` file           |
+| `cgroupsv2kubepods_memory_stat_percpu`                   | Gauge | `percpu` field from `memory.stat` file                   |
+| `cgroupsv2kubepods_memory_stat_sock`                     | Gauge | `sock` field from `memory.stat` file                     |
+| `cgroupsv2kubepods_memory_stat_vmalloc`                  | Gauge | `vmalloc` field from `memory.stat` file                  |
+| `cgroupsv2kubepods_memory_stat_shmem`                    | Gauge | `shmem` field from `memory.stat` file                    |
+| `cgroupsv2kubepods_memory_stat_zswap`                    | Gauge | `zswap` field from `memory.stat` file                    |
+| `cgroupsv2kubepods_memory_stat_zswapped`                 | Gauge | `zswapped` field from `memory.stat` file                 |
+| `cgroupsv2kubepods_memory_stat_file_mapped`              | Gauge | `file_mapped` field from `memory.stat` file              |
+| `cgroupsv2kubepods_memory_stat_file_dirty`               | Gauge | `file_dirty` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_file_writeback`           | Gauge | `file_writeback` field from `memory.stat` file           |
+| `cgroupsv2kubepods_memory_stat_swapcached`               | Gauge | `swapcached` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_anon_thp`                 | Gauge | `anon_thp` field from `memory.stat` file                 |
+| `cgroupsv2kubepods_memory_stat_file_thp`                 | Gauge | `file_thp` field from `memory.stat` file                 |
+| `cgroupsv2kubepods_memory_stat_shmem_thp`                | Gauge | `shmem_thp` field from `memory.stat` file                |
+| `cgroupsv2kubepods_memory_stat_inactive_anon`            | Gauge | `inactive_anon` field from `memory.stat` file            |
+| `cgroupsv2kubepods_memory_stat_active_anon`              | Gauge | `active_anon` field from `memory.stat` file              |
+| `cgroupsv2kubepods_memory_stat_inactive_file`            | Gauge | `inactive_file` field from `memory.stat` file            |
+| `cgroupsv2kubepods_memory_stat_active_file`              | Gauge | `active_file` field from `memory.stat` file              |
+| `cgroupsv2kubepods_memory_stat_unevictable`              | Gauge | `unevictable` field from `memory.stat` file              |
+| `cgroupsv2kubepods_memory_stat_slab_reclaimable`         | Gauge | `slab_reclaimable` field from `memory.stat` file         |
+| `cgroupsv2kubepods_memory_stat_slab_unreclaimable`       | Gauge | `slab_unreclaimable` field from `memory.stat` file       |
+| `cgroupsv2kubepods_memory_stat_slab`                     | Gauge | `slab` field from `memory.stat` file                     |
+| `cgroupsv2kubepods_memory_stat_workingset_refault_anon`  | Gauge | `workingset_refault_anon` field from `memory.stat` file  |
+| `cgroupsv2kubepods_memory_stat_workingset_refault_file`  | Gauge | `workingset_refault_file` field from `memory.stat` file  |
+| `cgroupsv2kubepods_memory_stat_workingset_activate_anon` | Gauge | `workingset_activate_anon` field from `memory.stat` file |
+| `cgroupsv2kubepods_memory_stat_workingset_activate_file` | Gauge | `workingset_activate_file` field from `memory.stat` file |
+| `cgroupsv2kubepods_memory_stat_workingset_restore_anon`  | Gauge | `workingset_restore_anon` field from `memory.stat` file  |
+| `cgroupsv2kubepods_memory_stat_workingset_restore_file`  | Gauge | `workingset_restore_file` field from `memory.stat` file  |
+| `cgroupsv2kubepods_memory_stat_workingset_nodereclaim`   | Gauge | `workingset_nodereclaim` field from `memory.stat` file   |
+| `cgroupsv2kubepods_memory_stat_pgscan`                   | Gauge | `pgscan` field from `memory.stat` file                   |
+| `cgroupsv2kubepods_memory_stat_pgsteal`                  | Gauge | `pgsteal` field from `memory.stat` file                  |
+| `cgroupsv2kubepods_memory_stat_pgscan_kswapd`            | Gauge | `pgscan_kswapd` field from `memory.stat` file            |
+| `cgroupsv2kubepods_memory_stat_pgscan_direct`            | Gauge | `pgscan_direct` field from `memory.stat` file            |
+| `cgroupsv2kubepods_memory_stat_pgscan_khugepaged`        | Gauge | `pgscan_khugepaged` field from `memory.stat` file        |
+| `cgroupsv2kubepods_memory_stat_pgsteal_kswapd`           | Gauge | `pgsteal_kswapd` field from `memory.stat` file           |
+| `cgroupsv2kubepods_memory_stat_pgsteal_direct`           | Gauge | `pgsteal_direct` field from `memory.stat` file           |
+| `cgroupsv2kubepods_memory_stat_pgsteal_khugepaged`       | Gauge | `pgsteal_khugepaged` field from `memory.stat` file       |
+| `cgroupsv2kubepods_memory_stat_pgfault`                  | Gauge | `pgfault` field from `memory.stat` file                  |
+| `cgroupsv2kubepods_memory_stat_pgmajfault`               | Gauge | `pgmajfault` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_pgrefill`                 | Gauge | `pgrefill` field from `memory.stat` file                 |
+| `cgroupsv2kubepods_memory_stat_pgactivate`               | Gauge | `pgactivate` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_pgdeactivate`             | Gauge | `pgdeactivate` field from `memory.stat` file             |
+| `cgroupsv2kubepods_memory_stat_pglazyfree`               | Gauge | `pglazyfree` field from `memory.stat` file               |
+| `cgroupsv2kubepods_memory_stat_pglazyfreed`              | Gauge | `pglazyfreed` field from `memory.stat` file              |
+| `cgroupsv2kubepods_memory_stat_zswpin`                   | Gauge | `zswpin` field from `memory.stat` file                   |
+| `cgroupsv2kubepods_memory_stat_zswpout`                  | Gauge | `zswpout` field from `memory.stat` file                  |
+| `cgroupsv2kubepods_memory_stat_thp_fault_alloc`          | Gauge | `thp_fault_alloc` field from `memory.stat` file          |
+| `cgroupsv2kubepods_memory_stat_thp_collapse_alloc`       | Gauge | `thp_collapse_alloc` field from `memory.stat` file       |
