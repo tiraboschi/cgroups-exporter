@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: stress-ng
+spec:
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: stress-ng
+    image: quay.io/tiraboschi/stress-ng
+    command: ['/usr/bin/stress-ng', '--temp-path', '/var/tmp/', '--cpu', '8']
+    resources:
+      requests:
+        cpu: "10m"
+      limits:
+        cpu: "20m"
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - "ALL"
+      runAsNonRoot: true
